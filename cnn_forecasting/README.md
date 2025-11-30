@@ -1,0 +1,1 @@
+CNN forecasting module for experimenting with Temporal Convolutional Networks on OHLCV data. This area will hold data handling, model definitions, training, evaluation, and inference utilities with an emphasis on reproducible, industrial-style workflows.
