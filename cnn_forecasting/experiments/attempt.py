@@ -1,12 +1,107 @@
 import tensorflow as tf
-from tensorflow.keras.layers import Input, Conv1D, Dense, Lambda, Flatten, Concatenate
-from tensorflow.keras import Model
-from tensorflow.keras import metrics
+from tensorflow.keras.layers import Input, Conv1D, Dense, Dropout, Flatten, Add
+from tensorflow.keras import Model, metrics, utils
 from tensorflow.keras.losses import CategoricalCrossentropy
-from tensorflow.keras import utils
 from sklearn.preprocessing import StandardScaler
 import numpy as np
-import math
+
+
+def create_windows(features, targets, lookback, horizon):
+    """Turn a timeseries into overlapping windows and categorical labels."""
+    X, y = [], []
+    end = len(features) - lookback - horizon + 1
+    for start in range(end):
+        end_idx = start + lookback
+        horizon_idx = end_idx + horizon - 1
+        X.append(features[start:end_idx])
+        y.append(targets[horizon_idx])
+    X = np.array(X, dtype=np.float32)
+    y = utils.to_categorical(np.array(y, dtype=np.int32))
+    return X, y
+
+
+def make_train_val_split(X, y, train_frac=0.8):
+    split = int(len(X) * train_frac)
+    return (X[:split], y[:split]), (X[split:], y[split:])
+
+
+def build_temporal_cnn(
+    input_shape,
+    num_classes,
+    filters=32,
+    kernel_size=3,
+    stacks=3,
+    dilation_base=2,
+    dropout_rate=0.1,
+):
+    inputs = Input(shape=input_shape)
+
+    x = inputs
+    dilation = 1
+    for _ in range(stacks):
+        res = x
+        x = Conv1D(filters, kernel_size, padding="causal", dilation_rate=dilation, activation="relu")(x)
+        x = Dropout(dropout_rate)(x)
+        x = Conv1D(filters, kernel_size, padding="causal", dilation_rate=dilation, activation="relu")(x)
+        res = Conv1D(filters, 1, padding="same")(res)
+        x = Add()([x, res])
+        dilation *= dilation_base
+
+    x = Flatten()(x)
+    x = Dropout(dropout_rate)(x)
+    outputs = Dense(num_classes, activation="softmax")(x)
+
+    model = Model(inputs, outputs)
+    model.compile(
+        optimizer="adam",
+        loss=CategoricalCrossentropy(),
+        metrics=[metrics.CategoricalAccuracy(name="acc"), metrics.AUC(name="auc")],
+    )
+    return model
+
+
+def generate_synthetic_ohlcv(length=1200, seed=7):
+    """Lightweight OHLCV generator to keep the example runnable without data files."""
+    rng = np.random.default_rng(seed)
+    steps = rng.normal(0, 0.6, size=length)
+    trend = np.linspace(0, 5, length)
+    close = 100 + np.cumsum(steps + 0.02 * np.sin(np.arange(length) / 15) + trend / length)
+    open_ = close + rng.normal(0, 0.3, size=length)
+    high = np.maximum(open_, close) + rng.random(length) * 0.5
+    low = np.minimum(open_, close) - rng.random(length) * 0.5
+    volume = rng.normal(1e6, 5e4, size=length)
+    features = np.stack([open_, high, low, close, volume], axis=1)
+    direction = (np.diff(close, prepend=close[0]) > 0).astype(np.int32)
+    return features, direction
+
+
+def prepare_data(lookback=32, horizon=1, train_frac=0.8):
+    features, direction = generate_synthetic_ohlcv()
+    scaler = StandardScaler()
+    scaled_features = scaler.fit_transform(features)
+    X, y = create_windows(scaled_features, direction, lookback, horizon)
+    (X_train, y_train), (X_val, y_val) = make_train_val_split(X, y, train_frac)
+    return (X_train, y_train), (X_val, y_val)
+
+
+def run_experiment(epochs=8, batch_size=32):
+    (X_train, y_train), (X_val, y_val) = prepare_data()
+    model = build_temporal_cnn(input_shape=X_train.shape[1:], num_classes=y_train.shape[1])
+    history = model.fit(
+        X_train,
+        y_train,
+        validation_data=(X_val, y_val),
+        epochs=epochs,
+        batch_size=batch_size,
+        verbose=2,
+    )
+    eval_result = model.evaluate(X_val, y_val, verbose=0)
+    return model, history, dict(zip(model.metrics_names, eval_result))
+
+
+if __name__ == "__main__":
+    model, history, metrics_out = run_experiment()
+    print("Final validation metrics:", metrics_out)
 
 inputs = Input(shape=(15, 5))
 feature_extraction = Conv1D(30, 4, activation='relu')(inputs)
@@ -65,3 +160,5 @@ dim1, dim2, dim3 = data.shape
 data = data.reshape(dim1*dim2, dim3)
 data = scaler.fit_transform(data)
 data = data.reshape(dim1, dim2, dim3)
+
+labels = utils.to_categorical(labels, num_classes=3)
