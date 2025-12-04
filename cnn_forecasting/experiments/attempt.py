@@ -1,7 +1,9 @@
 import tensorflow as tf
-from tensorflow.keras.layers import Input, Conv1D, Dense, Dropout, Flatten, Add
-from tensorflow.keras import Model, metrics, utils
+from tensorflow.keras.layers import Input, Conv1D, Dense, Lambda, Flatten, Concatenate
+from tensorflow.keras import Model
+from tensorflow.keras import metrics
 from tensorflow.keras.losses import CategoricalCrossentropy
+from tensorflow.keras import utils
 from sklearn.preprocessing import StandardScaler
 import numpy as np
 
@@ -101,7 +103,7 @@ def run_experiment(epochs=8, batch_size=32):
 
 if __name__ == "__main__":
     model, history, metrics_out = run_experiment()
-    print("Final validation metrics:", metrics_out)
+import math
 
 inputs = Input(shape=(15, 5))
 feature_extraction = Conv1D(30, 4, activation='relu')(inputs)
