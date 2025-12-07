@@ -1,0 +1,5 @@
+Metadata-Version: 2.4
+Name: backtesting_engine
+Version: 0.1.0
+Summary: A personal library for backtesting trading strategies
+Requires-Dist: pandas
